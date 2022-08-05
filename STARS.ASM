@@ -3,13 +3,46 @@ format MZ
 entry main:start
 stack 100h
 
-segment main
+VGA_WIDTH   equ 320
+VGA_HEIGHT  equ 200
+NUM_STARS   equ 75
+SPEED       equ 1
+STAR_COLOR  equ 11
 
-vga_width   equ 320
-vga_height  equ 200
-num_stars   equ 75
-speed       equ 1
-star_color  equ 11
+NOTE_C  equ 342
+NOTE_CS equ 363
+NOTE_D  equ 385
+NOTE_DS equ 408
+NOTE_E  equ 432
+NOTE_F  equ 458
+NOTE_FS equ 485
+NOTE_G  equ 514
+NOTE_GS equ 544
+NOTE_A  equ 577
+NOTE_AS equ 611
+NOTE_B  equ 647
+
+struc music_note note, octave, length {
+    .note dw note
+    .octave db octave
+    .length db length
+}
+
+macro music_note note, octave, length {
+    local lbl
+    lbl music_note note, octave, length
+}
+
+struc music_track curr_rem, curr_note, notes, notes_len, areg, breg {
+    .curr_rem db curr_rem
+    .curr_note db curr_note
+    .notes dw notes
+    .notes_len db notes_len
+    .areg db areg
+    .breg db breg
+}
+
+segment main
 
 start:
     mov ax, text
@@ -27,7 +60,7 @@ start:
     mov [rnd], dx
 
     ; init stars in random xyz positions
-    mov cx, num_stars
+    mov cx, NUM_STARS
     mov di, stars
 
 init_star_loop:
@@ -60,18 +93,17 @@ end_retrace2:
     test al, 08
     jz end_retrace2
 
-
     ; clear screen
     xor di, di
     mov ax, 0
-    mov cx, vga_width * vga_height / 2
+    mov cx, VGA_WIDTH * VGA_HEIGHT / 2
     rep stosw
 
     ; update and render stars
-    mov cx, num_stars
+    mov cx, NUM_STARS
     mov bx, stars
 render_star_loop:
-    sub word [bx+4], speed
+    sub word [bx+4], SPEED
     cmp word [bx+4], 0
     jne @f
     mov di, bx
@@ -96,21 +128,21 @@ render_star_loop:
     add ax, 100
     mov [star_render+2], ax
 
-    cmp word [star_render], vga_width
+    cmp word [star_render], VGA_WIDTH
     jg skip_star
     cmp word [star_render], 0
     jl skip_star
-    cmp word [star_render+2], vga_height
+    cmp word [star_render+2], VGA_HEIGHT
     jg skip_star
     cmp word [star_render+2], 0
     jl skip_star
 
     ; draw pixel
     mov ax, [star_render+2]
-    imul ax, vga_width
+    imul ax, VGA_WIDTH
     add ax, [star_render]
     mov di, ax
-    mov al, star_color
+    mov al, STAR_COLOR
     stosb
 
     jmp render_end
@@ -133,26 +165,25 @@ render_end:
     mov ax, 3h
     int 10h
 
-
     mov ah, 4ch
     int 21h
 
 init_star:
     ; x
     call get_random
-    mov bx, vga_width
+    mov bx, VGA_WIDTH
     xor dx, dx
     div bx
-    sub dx, vga_width/2
+    sub dx, VGA_WIDTH/2
     shl dx, 4
     mov [di+0], dx
 
     ; y
     call get_random
-    mov bx, vga_height
+    mov bx, VGA_HEIGHT
     xor dx, dx
     div bx
-    sub dx, vga_height/2
+    sub dx, VGA_HEIGHT/2
     shl dx, 4
     mov [di+2], dx
 
@@ -195,38 +226,6 @@ adlib_write:
     popa
     ret
 
-struc music_note note, octave, length {
-    .note dw note
-    .octave db octave
-    .length db length
-}
-
-macro music_note note, octave, length {
-    local lbl
-    lbl music_note note, octave, length
-}
-
-struc music_track curr_rem, curr_note, notes, notes_len, areg, breg {
-    .curr_rem db curr_rem
-    .curr_note db curr_note
-    .notes dw notes
-    .notes_len db notes_len
-    .areg db areg
-    .breg db breg
-}
-NOTE_C  equ 342
-NOTE_CS equ 363
-NOTE_D  equ 385
-NOTE_DS equ 408
-NOTE_E  equ 432
-NOTE_F  equ 458
-NOTE_FS equ 485
-NOTE_G  equ 514
-NOTE_GS equ 544
-NOTE_A  equ 577
-NOTE_AS equ 611
-NOTE_B  equ 647
-
 music_init:
     mov cx, adlib_ch1_settings_size
     mov bx, adlib_ch1_settings
@@ -261,10 +260,7 @@ music_init:
     loop @b
 
     mov al, 0xbd
-    mov ah, 0x28 ; enable percussion mode
-    call adlib_write
-
-    and ah, 0xd7
+    mov ah, 0x20 ; enable percussion mode
     call adlib_write
 
 music_update:
@@ -275,7 +271,10 @@ music_update:
         call music_update_track
         add si, 2
         loop .update_track
-     ret
+
+    call music_update_drums
+
+    ret
 
 ; bx: track
 music_update_track:
@@ -313,12 +312,37 @@ music_update_track:
     popa
     ret
 
+music_update_drums:
+    mov al, 0xbd
+    mov ah, 0x20 ; enable percussion mode
+
+    ; snare
+
+    dec [sd_counter]
+    cmp [sd_counter], 0
+    jg @f
+    mov [sd_counter], 32
+    or ah, 0x08 ; sd on
+@@:
+    ; bass
+
+    dec [bd_counter]
+    cmp [bd_counter], 0
+    jg @f
+    mov [bd_counter], 32
+    or ah, 0x10 ; bd on
+@@:
+    call adlib_write
+    and ah, 0xe7
+    call adlib_write
+
+    ret
 
 segment text
 
 rnd   rw 1
 star_render rw 4
-stars rw 3 * num_stars
+stars rw 3 * NUM_STARS
 
 adlib_ch1_settings dw 0x0220, \ ; modulator multiple = 2
                       0x1040, \ ; modulator level
@@ -345,23 +369,23 @@ adlib_ch3_settings dw 0x0130, \ ; modulator multiple = 2
                       0x1050, \ ; modulator level
                       0xf070, \ ; modulator attack
                       0x7390, \ ; modulator sustain/release
-                      0x4133, \ ; carrier multiple
+                      0x0233, \ ; carrier multiple
                       0x0053, \ ; carrier level
                       0xf073, \ ; carrier attack
-                      0x7f93, \ ; carrier sustain/release
-                      0x98a6, \ ;
-                      0x11b6    ;
+                      0x7a93, \ ; carrier sustain/release
+                      0x98a6, \ ; freq lsb
+                      0x01b6    ;
 adlib_ch3_settings_size = ($-adlib_ch3_settings)/2
 
 ; snare
-adlib_ch4_settings dw 0x0134, \ ; modulator multiple = 2
+adlib_ch4_settings dw 0x0234, \ ; modulator multiple = 2
                       0x1054, \ ; modulator level
                       0xf074, \ ; modulator attack
-                      0x7394    ; modulator sustain/release
+                      0x7994    ; modulator sustain/release
 adlib_ch4_settings_size = ($-adlib_ch4_settings)/2
 
 
-music_tracks dw track1, track2
+music_tracks dw track1;, track2
 music_tracks_len = ($-music_tracks)/2
 track1 music_track 0xff, 0xff, track1_notes, track1_notes_len, 0xa0, 0xb0
 track2 music_track 0xff, 0xff, track2_notes, track2_notes_len, 0xa1, 0xb1
@@ -391,4 +415,5 @@ track2_notes music_note NOTE_E, 4, 32
 
 track2_notes_len = ($-track2_notes)/4
 
-
+bd_counter dw 0
+sd_counter dw 16
