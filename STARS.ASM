@@ -53,7 +53,7 @@ start:
     int 10h
     mov ax, 0a000h
     mov es, ax
-    
+
     ; init prng
     mov ah, 0h
     int 1ah
@@ -68,30 +68,25 @@ init_star_loop:
     add di, 6
     loop init_star_loop
 
+    ; configure opl channels
     call music_init
 
 main_loop:
 
-    ; wait for retrace
-wait_retrace:
+    ; wait for retrace.. twice.. because..
+    mov cx, 2
+vsync:
+@@:
     mov dx, 3dah
     in al, dx
     test al, 08
-    jnz wait_retrace
-end_retrace:
+    jnz @b
+@@:
     in al, dx
     test al, 08
-    jz end_retrace
+    jz @b
 
-wait_retrace2:
-    mov dx, 3dah
-    in al, dx
-    test al, 08
-    jnz wait_retrace2
-end_retrace2:
-    in al, dx
-    test al, 08
-    jz end_retrace2
+    loop vsync
 
     ; clear screen
     xor di, di
@@ -99,11 +94,13 @@ end_retrace2:
     mov cx, VGA_WIDTH * VGA_HEIGHT / 2
     rep stosw
 
-    ; update and render stars
+    ; update z position and render stars
     mov cx, NUM_STARS
     mov bx, stars
 render_star_loop:
     sub word [bx+4], SPEED
+
+    ; re-init star in new position when z becomes 0
     cmp word [bx+4], 0
     jne @f
     mov di, bx
@@ -111,9 +108,6 @@ render_star_loop:
     call init_star
     pop bx
 @@:
-    mov ax, [bx+4]
-    mov [star_render+4], ax
-    mov [star_render+6], cx
     ; project x
     mov ax, [bx]
     cwd
@@ -146,11 +140,13 @@ render_star_loop:
     stosb
 
     jmp render_end
+
 skip_star:
     push bx
     mov di, bx
     call init_star
     pop bx
+
 render_end:
     add bx, 6
     loop render_star_loop
@@ -227,41 +223,19 @@ adlib_write:
     ret
 
 music_init:
-    mov cx, adlib_ch1_settings_size
-    mov bx, adlib_ch1_settings
-@@:
-    mov ax, [bx]
-    call adlib_write
-    add bx, 2
-    loop @b
 
-    mov cx, adlib_ch2_settings_size
-    mov bx, adlib_ch2_settings
-@@:
-    mov ax, [bx]
-    call adlib_write
-    add bx, 2
-    loop @b
-
-    mov cx, adlib_ch3_settings_size
-    mov bx, adlib_ch3_settings
-@@:
-    mov ax, [bx]
-    call adlib_write
-    add bx, 2
-    loop @b
-
-    mov cx, adlib_ch4_settings_size
-    mov bx, adlib_ch4_settings
-@@:
-    mov ax, [bx]
-    call adlib_write
-    add bx, 2
-    loop @b
-
-    mov al, 0xbd
-    mov ah, 0x20 ; enable percussion mode
-    call adlib_write
+    mov cx, music_channel_settings_len
+    mov si, music_channel_settings
+    .init_channel:
+        mov bx, [si]
+        @@:
+            mov ax, [bx]
+            call adlib_write
+            add bx, 2
+            cmp word [bx], 0xffff
+            jne @b
+        add si, 2
+        loop .init_channel
 
 music_update:
     mov cx, music_tracks_len
@@ -296,15 +270,21 @@ music_update_track:
     add si, ax
     mov ah, [si+3]
     mov [bx], ah ; current_remaining = note len
+
+    ; write freq lsb
     mov al, [bx+5]
     mov ah, [si]
     call adlib_write
+
+    ; write octave, freq msb and note on
     mov al, [bx+6]
     mov ah, [si+2]
     shl ah, 2
     or ah, [si+1]
     or ah, 0x20
     call adlib_write
+
+    ; note off
     and ah, 0xdf
     call adlib_write
 
@@ -318,18 +298,18 @@ music_update_drums:
 
     ; snare
 
-    dec [sd_counter]
-    cmp [sd_counter], 0
+    dec [music_sd_counter]
+    cmp [music_sd_counter], 0
     jg @f
-    mov [sd_counter], 32
+    mov [music_sd_counter], 32
     or ah, 0x08 ; sd on
 @@:
     ; bass
 
-    dec [bd_counter]
-    cmp [bd_counter], 0
+    dec [music_bd_counter]
+    cmp [music_bd_counter], 0
     jg @f
-    mov [bd_counter], 32
+    mov [music_bd_counter], 32
     or ah, 0x10 ; bd on
 @@:
     call adlib_write
@@ -344,76 +324,79 @@ rnd   rw 1
 star_render rw 4
 stars rw 3 * NUM_STARS
 
-adlib_ch1_settings dw 0x0220, \ ; modulator multiple = 2
+music_channel_settings dw music_ch1_settings, \
+                          music_ch2_settings, \
+                          music_bd_settings,  \
+                          music_sd_settings
+music_channel_settings_len = ($-music_channel_settings)/2
+
+music_ch1_settings dw 0x0220, \ ; modulator multiple = 2
                       0x1040, \ ; modulator level
                       0xf060, \ ; modulator attack
                       0x7380, \ ; modulator sustain/release
                       0x0123, \ ; carrier multiple
                       0x0043, \ ; carrier level
                       0xf063, \ ; carrier attack
-                      0x7383    ; carrier sustain/release
-adlib_ch1_settings_size = ($-adlib_ch1_settings)/2
+                      0x7383, \ ; carrier sustain/release
+                      0xffff
 
-adlib_ch2_settings dw 0x0121, \ ; modulator multiple = 2
+music_ch2_settings dw 0x0121, \ ; modulator multiple = 2
                       0x1041, \ ; modulator level
                       0xf061, \ ; modulator attack
                       0x7381, \ ; modulator sustain/release
                       0x4124, \ ; carrier multiple
                       0x0044, \ ; carrier level
                       0xf064, \ ; carrier attack
-                      0x7484    ; carrier sustain/release
-adlib_ch2_settings_size = ($-adlib_ch2_settings)/2
+                      0x7484, \ ; carrier sustain/release
+                      0xffff
 
-; bass drum
-adlib_ch3_settings dw 0x0130, \ ; modulator multiple = 2
-                      0x1050, \ ; modulator level
-                      0xf070, \ ; modulator attack
-                      0x7390, \ ; modulator sustain/release
-                      0x0233, \ ; carrier multiple
-                      0x0053, \ ; carrier level
-                      0xf073, \ ; carrier attack
-                      0x7a93, \ ; carrier sustain/release
-                      0x98a6, \ ; freq lsb
-                      0x01b6    ;
-adlib_ch3_settings_size = ($-adlib_ch3_settings)/2
+music_bd_settings dw 0x0130, \ ; modulator multiple = 2
+                     0x1050, \ ; modulator level
+                     0xf070, \ ; modulator attack
+                     0x7390, \ ; modulator sustain/release
+                     0x0233, \ ; carrier multiple
+                     0x0053, \ ; carrier level
+                     0xf073, \ ; carrier attack
+                     0x7a93, \ ; carrier sustain/release
+                     0x98a6, \ ; freq lsb
+                     0x01b6, \
+                     0xffff
 
-; snare
-adlib_ch4_settings dw 0x0234, \ ; modulator multiple = 2
-                      0x1054, \ ; modulator level
-                      0xf074, \ ; modulator attack
-                      0x7994    ; modulator sustain/release
-adlib_ch4_settings_size = ($-adlib_ch4_settings)/2
+music_sd_settings dw 0x0234, \ ; modulator multiple = 2
+                     0x1054, \ ; modulator level
+                     0xf074, \ ; modulator attack
+                     0x7994, \ ; modulator sustain/release
+                     0xffff
 
-
-music_tracks dw track1;, track2
+music_tracks dw music_track1, music_track2
 music_tracks_len = ($-music_tracks)/2
-track1 music_track 0xff, 0xff, track1_notes, track1_notes_len, 0xa0, 0xb0
-track2 music_track 0xff, 0xff, track2_notes, track2_notes_len, 0xa1, 0xb1
+music_track1 music_track 0xff, 0xff, music_track1_notes, music_track1_notes_len, 0xa0, 0xb0
+music_track2 music_track 0xff, 0xff, music_track2_notes, music_track2_notes_len, 0xa1, 0xb1
 
-track1_notes music_note NOTE_A, 1, 64
-             music_note NOTE_E, 2, 64
-             music_note NOTE_C, 2, 64
-             music_note NOTE_A, 1, 64
+music_track1_notes music_note NOTE_A, 1, 64
+                   music_note NOTE_E, 2, 64
+                   music_note NOTE_C, 2, 64
+                   music_note NOTE_A, 1, 64
 
-             music_note NOTE_A, 1, 64
-             music_note NOTE_C, 3, 64
-             music_note NOTE_A, 2, 64
-             music_note NOTE_A, 2, 64
-track1_notes_len = ($-track1_notes)/4
+                   music_note NOTE_A, 1, 64
+                   music_note NOTE_C, 3, 64
+                   music_note NOTE_A, 2, 64
+                   music_note NOTE_A, 2, 64
+music_track1_notes_len = ($-music_track1_notes)/4
 
-track2_notes music_note NOTE_E, 4, 32
-             music_note NOTE_F, 4, 8
-             music_note NOTE_E, 4, 8
-             music_note NOTE_F, 4, 8
-             music_note NOTE_E, 4, 8
-             music_note NOTE_G, 4, 32
-             music_note NOTE_D, 4, 8
-             music_note NOTE_C, 4, 8
-             music_note NOTE_D, 4, 8
-             music_note NOTE_C, 4, 8
-             music_note NOTE_E, 4, 128
+music_track2_notes music_note NOTE_E, 4, 32
+                   music_note NOTE_F, 4, 8
+                   music_note NOTE_E, 4, 8
+                   music_note NOTE_F, 4, 8
+                   music_note NOTE_E, 4, 8
+                   music_note NOTE_G, 4, 32
+                   music_note NOTE_D, 4, 8
+                   music_note NOTE_C, 4, 8
+                   music_note NOTE_D, 4, 8
+                   music_note NOTE_C, 4, 8
+                   music_note NOTE_E, 4, 128
 
-track2_notes_len = ($-track2_notes)/4
+music_track2_notes_len = ($-music_track2_notes)/4
 
-bd_counter dw 0
-sd_counter dw 16
+music_bd_counter dw 0
+music_sd_counter dw 16
