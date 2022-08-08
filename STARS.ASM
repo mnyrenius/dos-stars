@@ -265,7 +265,6 @@ music_update_track:
     mov ah, 4
     imul ah ; note size
     movzx ax, al
-    xor dx,dx
     mov si, [bx+2] ; track notes
     add si, ax
     mov ah, [si+3]
@@ -281,11 +280,8 @@ music_update_track:
     mov ah, [si+2]
     shl ah, 2
     or ah, [si+1]
-    or ah, 0x20
-    call adlib_write
-
-    ; note off
-    and ah, 0xdf
+    call adlib_write ; first set note off
+    or ah, 0x20 ; then note on
     call adlib_write
 
 .end:
@@ -295,6 +291,7 @@ music_update_track:
 music_update_drums:
     mov al, 0xbd
     mov ah, 0x20 ; enable percussion mode
+    call adlib_write
 
     ; snare
 
@@ -312,8 +309,6 @@ music_update_drums:
     mov [music_bd_counter], 32
     or ah, 0x10 ; bd on
 @@:
-    call adlib_write
-    and ah, 0xe7
     call adlib_write
 
     ret
@@ -333,31 +328,31 @@ music_channel_settings_len = ($-music_channel_settings)/2
 music_ch1_settings dw 0x0220, \ ; modulator multiple = 2
                       0x1040, \ ; modulator level
                       0xf060, \ ; modulator attack
-                      0x7380, \ ; modulator sustain/release
+                      0x0380, \ ; modulator sustain/release
                       0x0123, \ ; carrier multiple
                       0x0043, \ ; carrier level
                       0xf063, \ ; carrier attack
-                      0x7383, \ ; carrier sustain/release
+                      0x0383, \ ; carrier sustain/release
                       0xffff
 
 music_ch2_settings dw 0x0121, \ ; modulator multiple = 2
                       0x1041, \ ; modulator level
                       0xf061, \ ; modulator attack
-                      0x7381, \ ; modulator sustain/release
+                      0x0381, \ ; modulator sustain/release
                       0x4124, \ ; carrier multiple
                       0x0044, \ ; carrier level
                       0xf064, \ ; carrier attack
-                      0x7484, \ ; carrier sustain/release
+                      0x0484, \ ; carrier sustain/release
                       0xffff
 
 music_bd_settings dw 0x0130, \ ; modulator multiple = 2
                      0x1050, \ ; modulator level
                      0xf070, \ ; modulator attack
-                     0x7390, \ ; modulator sustain/release
+                     0x0390, \ ; modulator sustain/release
                      0x0233, \ ; carrier multiple
                      0x0053, \ ; carrier level
                      0xf073, \ ; carrier attack
-                     0x7a93, \ ; carrier sustain/release
+                     0x0a93, \ ; carrier sustain/release
                      0x98a6, \ ; freq lsb
                      0x01b6, \
                      0xffff
@@ -365,7 +360,7 @@ music_bd_settings dw 0x0130, \ ; modulator multiple = 2
 music_sd_settings dw 0x0234, \ ; modulator multiple = 2
                      0x1054, \ ; modulator level
                      0xf074, \ ; modulator attack
-                     0x7994, \ ; modulator sustain/release
+                     0x0994, \ ; modulator sustain/release
                      0xffff
 
 music_tracks dw music_track1, music_track2
