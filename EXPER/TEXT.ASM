@@ -6,6 +6,7 @@ stack 100h
 segment main
 
 include '..\LIB\VIDEO.ASM'
+include '..\LIB\TEXT.ASM'
 
 start:
     mov ax, text
@@ -22,39 +23,6 @@ start:
     mov es, ax
 
     ; set palette
-;    mov di, palette
-;    mov ah, 63 ; r
-;    mov al, 31 ; g
-;    mov bh, 0  ; b
-
-;    mov byte [di], 0
-;    inc di
-;    mov byte [di], 0
-;    inc di
-;    mov byte [di], 0
-;    inc di
-;    mov cx, 32
-;.SetPalette:
-;    mov [di], ah
-;    inc di
-;    mov [di], al
-;    inc di
-;    mov [di], bh
-;    inc di
-;    add bh,1
-
-;    mov [di], ah
-;    inc di
-;    mov [di], al
-;    inc di
-;    mov [di], bh
-;    inc di
-
-;    add al, 1
-;    add bh, 1
-;    loop .SetPalette
-
-;    mov si, palette
     mov dx, 03c8h
     mov ax, 0
     out dx, al
@@ -65,8 +33,6 @@ start:
     out dx, al
     out dx, al
     mov cx, 255
-;    cld
-;    rep outsb
     xor ax, ax
     mov ah, 31 ; g
     mov bh, 0  ; b
@@ -110,11 +76,15 @@ MainLoop:
 
     call RenderLeftScroll
 
+    cmp [framecounter], 300
+    jb @f
+    call RenderFadingText
+@@:
     cmp [framecounter], 500
     jb @f
     call RenderRightScroll
 @@:
-    cmp [framecounter], 1
+    cmp [framecounter], 1000
     jb @f
     call RenderSineScroll
 @@:
@@ -148,7 +118,7 @@ RenderLeftScroll:
 .PutStr:
     mov ah, byte [si]
     mov [bx], ah
-    call PutChar
+    call Text_PutChar
     add word [bx+2], 8
     inc si
     mov ax, [bx+2]
@@ -175,7 +145,7 @@ RenderRightScroll:
 .PutStr:
     mov ah, byte [si]
     mov [bx], ah
-    call PutChar
+    call Text_PutChar
     add word [bx+2], 8
     inc si
     loop .PutStr
@@ -189,16 +159,6 @@ RenderRightScroll:
 
 RenderSineScroll:
     ; mod palette
-;    mov dx, 03c8h
-;    mov al, 11
-;    out dx, al
-;    inc dx
-;    mov al, 63
-;    out dx, al
-;    mov al, 32
-;    out dx, al
-;    mov al, 0
-;    out dx, al
 
     mov si, str_sine
     mov bx, char
@@ -229,7 +189,7 @@ RenderSineScroll:
     mov ax, [bx+2]
     mov byte [bx+4], al
 
-    call PutChar
+    call Text_PutChar
     add word [bx+2], 8
     inc si
     loop .PutStr
@@ -241,57 +201,61 @@ RenderSineScroll:
 @@:
     ret
 
+RenderFadingText:
+    mov dx, 03c8h
+    mov al, 255
+    out dx, al
+    inc dx
+    mov al, [fade_rgb]
+    out dx, al
+    out dx, al
+    out dx, al
 
-; bx: pointer to
-; char  db
-; y     db
-; x     dw
-; color db
-PutChar:
-    pusha
-
-    cmp word [bx+2], VGA_WIDTH-8
-    ja .SkipRender
-    cmp word [bx+2], 0
-    jb .SkipRender
-
-    movzx ax, byte [bx]
-    imul ax, 8
-    mov si, font8x8
-    add si, ax
-    movzx ax, byte [bx+1]
-    imul ax, VGA_WIDTH
-    add ax, word [bx+2]
-    mov di, ax
-
-    mov cx, 8
-.outer:
-    mov dx, 1
-    push cx
-    mov cx, 8
-.inner:
-    mov al, 0
-    test [si], dx
-    jz @f
-    mov al, [bx+4]
+    ; fade every 4 frame
+    mov ax, [framecounter]
+    mov bx, 4
+    xor dx, dx
+    div bx
+    test dx, dx
+    jnz .SkipFade
+    cmp [fade_dir], 1
+    je .FadeIn
+    dec [fade_rgb]
+    cmp [fade_rgb], 0
+    ja @f
+    mov [fade_dir], 1
 @@:
-    stosb
-    shl dx, 1
-    loop .inner
-    inc si
-    add di, VGA_WIDTH-8
-    pop cx
-    loop .outer
+    jmp .FadeOut
+.FadeIn:
+    inc [fade_rgb]
+    cmp [fade_rgb], 63
+    jne @f
+    mov [fade_dir], 0
+@@:
+.FadeOut:
+.SkipFade:
 
-.SkipRender:
-    popa
+    mov si, str_fading
+    mov bx, char
+    mov byte [bx+1], 20
+    mov word [bx+2], 20
+    mov byte [bx+4], 255
+    mov cx, str_fading_len
+.PutStr:
+    mov ah, byte [si]
+    mov [bx], ah
+    call Text_PutChar
+    add word [bx+2], 8
+    inc si
+    loop .PutStr
+
+@@:
     ret
 
 segment text
 framecounter dw 0
 vbuffer rw 1
 char rb 5
-palette rb 256*3
 
 x_pos dw VGA_WIDTH
 y_pos db VGA_HEIGHT/2
@@ -302,6 +266,11 @@ x_pos_rightscroll dw -str_rightscroll_len*8
 y_pos_rightscroll db VGA_HEIGHT/4
 str_rightscroll db '... and this should be scrolling from left to right!'
 str_rightscroll_len = $-str_rightscroll
+
+str_fading db 'This text fades in and out...'
+str_fading_len = $-str_fading
+fade_rgb db 0
+fade_dir db 1
 
 x_pos_sine dw VGA_WIDTH
 y_pos_sine db VGA_HEIGHT/3*2
