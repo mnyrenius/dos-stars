@@ -53,7 +53,7 @@ start:
     int 10h
     mov ax, 0a000h
     mov es, ax
-
+    
     ; init prng
     mov ah, 0h
     int 1ah
