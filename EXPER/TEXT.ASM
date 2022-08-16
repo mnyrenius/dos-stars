@@ -7,6 +7,7 @@ segment main
 
 include '..\LIB\VIDEO.ASM'
 include '..\LIB\TEXT.ASM'
+include '..\LIB\DRAW.ASM'
 
 start:
     mov ax, text
@@ -74,20 +75,11 @@ MainLoop:
     mov cx, VGA_WIDTH * VGA_HEIGHT / 2
     rep stosw
 
-    call RenderLeftScroll
+    mov bx, scene_table
+    add bx, [scene_index]
+    jmp word [bx]
 
-    cmp [framecounter], 300
-    jb @f
-    call RenderFadingText
-@@:
-    cmp [framecounter], 500
-    jb @f
-    call RenderRightScroll
-@@:
-    cmp [framecounter], 1000
-    jb @f
-    call RenderSineScroll
-@@:
+DrawScene:
     call Video_vsync
 
     mov ax, [vbuffer]
@@ -105,6 +97,62 @@ MainLoop:
 quit:
     mov ah, 4ch
     int 21h
+
+Scene1:
+    call RenderFrame
+    call RenderLeftScroll
+    cmp [framecounter], 500
+    jb @f
+    add [scene_index], 2
+@@:
+    jmp DrawScene
+
+Scene2:
+    call RenderFrame
+    call RenderLeftScroll
+    call RenderFadingText
+    cmp [framecounter], 1000
+    jb @f
+    add [scene_index], 2
+@@:
+    jmp DrawScene
+
+Scene3:
+    call RenderFrame
+    call RenderLeftScroll
+    call RenderRightScroll
+    call RenderFadingText
+    call RenderSineScroll
+    jmp DrawScene
+
+RenderFrame:
+    mov word [linestruct], 12
+    mov word [linestruct+2], 5
+    mov word [linestruct+4], 5
+    mov word [linestruct+6], VGA_WIDTH-5
+    mov word [linestruct+8], 5
+    mov bx, linestruct
+    call draw_line
+
+    mov word [linestruct+2], VGA_WIDTH-5
+    mov word [linestruct+4], VGA_HEIGHT-5
+    mov bx, linestruct
+    call draw_line
+
+    mov word [linestruct+2], 5
+    mov word [linestruct+4], VGA_HEIGHT-5
+    mov word [linestruct+6], VGA_WIDTH-5
+    mov word [linestruct+8], VGA_HEIGHT-5
+    mov bx, linestruct
+    call draw_line
+
+    mov word [linestruct+2], 5
+    mov word [linestruct+4], 5
+    mov word [linestruct+6], 5
+    mov bx, linestruct
+    call draw_line
+
+    ret
 
 RenderLeftScroll:
     mov si, mystring
@@ -128,7 +176,7 @@ RenderLeftScroll:
     dec [x_pos]
     cmp [x_pos], -mystring_len*8
     jg @f
-    mov [x_pos], VGA_WIDTH
+    mov [x_pos], VGA_WIDTH-5
 
 @@:
     ret
@@ -151,7 +199,7 @@ RenderRightScroll:
     loop .PutStr
 
     inc [x_pos_rightscroll]
-    cmp [x_pos_rightscroll], VGA_WIDTH ;str_rightscroll_len*8
+    cmp [x_pos_rightscroll], VGA_WIDTH-5 ;str_rightscroll_len*8
     jl @f
     mov [x_pos_rightscroll], -str_rightscroll_len*8
 @@:
@@ -197,7 +245,7 @@ RenderSineScroll:
     dec [x_pos_sine]
     cmp [x_pos_sine], -str_sine_len*8
     jg @f
-    mov [x_pos_sine], VGA_WIDTH
+    mov [x_pos_sine], VGA_WIDTH-5
 @@:
     ret
 
@@ -256,6 +304,11 @@ segment text
 framecounter dw 0
 vbuffer rw 1
 char rb 5
+
+linestruct rw 5
+
+scene_table dw Scene1, Scene2, Scene3
+scene_index dw 0
 
 x_pos dw VGA_WIDTH
 y_pos db VGA_HEIGHT/2
